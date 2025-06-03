@@ -41,7 +41,11 @@ class SidePanel(QWidget):
             if seed['type'] == 'Najemca':
                 item = QListWidgetItem(f"{seed.get('name', 'Najemca')} | {seed['area']:.2f} m²")
                 # Dodaj kolorowy kwadracik
-                color = QColor(*seed.get('color', [0,200,0,120]))
+                color_val = seed.get('color', [0,200,0,120])
+                if isinstance(color_val, QColor):
+                    color = color_val
+                else:
+                    color = QColor(*color_val)
                 pix = self._colored_square_pixmap(color)
                 item.setIcon(pix)
                 self.najemcy_list.addItem(item)
