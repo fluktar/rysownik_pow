@@ -21,6 +21,7 @@ class Canvas(QWidget):
         self.on_building_closed = None
         self.on_seeds_changed = None
         self.setMouseTracking(True)
+        self.highlighted_tenant_idx = None
 
     def set_zoom(self, zoom):
         self.zoom = zoom
@@ -39,6 +40,10 @@ class Canvas(QWidget):
         self.temp_points = []
         self.selected_obj = None
         self.selected_vertex = None
+        self.update()
+
+    def set_highlighted_tenant(self, idx):
+        self.highlighted_tenant_idx = idx
         self.update()
 
     def mousePressEvent(self, event: QMouseEvent):
@@ -125,8 +130,14 @@ class Canvas(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
         painter.scale(self.zoom, self.zoom)
+        tenant_idx = 0
         for obj in self.objects:
             highlight = (obj is self.selected_obj)
+            # Mruganie najemcy
+            if obj.__class__.__name__ == 'TenantArea' and self.highlighted_tenant_idx is not None:
+                if tenant_idx == self.highlighted_tenant_idx:
+                    highlight = True
+                tenant_idx += 1
             obj.draw(painter, highlight=highlight)
         # Rysowanie aktualnie rysowanego obiektu
         if self.temp_points:
