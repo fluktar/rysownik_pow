@@ -87,9 +87,6 @@ class Canvas(QWidget):
                 if self.on_seeds_changed:
                     self.on_seeds_changed(self.get_all_seeds())
                 self.update()
-            else:
-                self.temp_points.append(point)
-                self.update()
 
     def mouseMoveEvent(self, event: QMouseEvent):
         point = (event.position() / self.zoom).toPoint()
@@ -166,3 +163,9 @@ class Canvas(QWidget):
             self.on_building_closed(self.objects[0].area(self.scale))
         if self.on_seeds_changed:
             self.on_seeds_changed(self.get_all_seeds())
+
+    def wheelEvent(self, event):
+        if event.angleDelta().y() > 0:
+            self.zoom_in()
+        else:
+            self.zoom_out()

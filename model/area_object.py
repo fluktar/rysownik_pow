@@ -1,4 +1,4 @@
-from PySide6.QtCore import QPoint
+from PySide6.QtCore import QPoint, Qt
 from PySide6.QtGui import QColor, QPainter, QPen, QPolygon
 
 class AreaObject:
@@ -25,7 +25,7 @@ class AreaObject:
     def hit_test(self, point: QPoint, offset=QPoint(0,0)):
         # Czy kliknięto w środek obiektu
         poly = QPolygon([pt + offset for pt in self.points])
-        return poly.containsPoint(point, 0)
+        return poly.containsPoint(point, Qt.OddEvenFill)
 
     def hit_vertex(self, point: QPoint, offset=QPoint(0,0)):
         # Zwraca indeks wierzchołka jeśli kliknięto blisko
@@ -53,14 +53,25 @@ class AreaObject:
         return {
             'type': self.__class__.__name__,
             'points': [(pt.x(), pt.y()) for pt in self.points],
-            'color': (self.color.red(), self.color.green(), self.color.blue(), self.color.alpha())
+            'color': [self.color.red(), self.color.green(), self.color.blue(), self.color.alpha()]
         }
 
     @classmethod
     def from_dict(cls, data):
         from PySide6.QtCore import QPoint
         points = [QPoint(x, y) for x, y in data.get('points', [])]
-        color = QColor(*data.get('color', (0,0,0,60)))
+        color = QColor(*data.get('color', [0,0,0,60]))
+        # Wymuś typ klasy na podstawie pola 'type' jeśli to nie jest AreaObject
+        if cls.__name__ == 'AreaObject' and 'type' in data:
+            if data['type'] == 'Building':
+                from model.building import Building
+                return Building(points)
+            elif data['type'] == 'CommonArea':
+                from model.common_area import CommonArea
+                return CommonArea(points)
+            elif data['type'] == 'TenantArea':
+                from model.tenant_area import TenantArea
+                return TenantArea(points)
         obj = cls(points)
         obj.color = color
         return obj
