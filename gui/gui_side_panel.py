@@ -31,6 +31,7 @@ class SidePanel(QWidget):
         self._highlight_timer.timeout.connect(self._toggle_highlight)
         self._highlight_state = False
         self._highlighted_idx = None
+        self.najemcy_list.itemDoubleClicked.connect(self.edit_tenant_area)
 
     def set_building_surface(self, surface):
         self.building_label.setText(f"Powierzchnia: {surface:.2f} m²")
@@ -109,6 +110,23 @@ class SidePanel(QWidget):
                 if 0 <= idx < len(tenant_objs):
                     tenant_objs[idx].name = name
                     item.setText(f"{name} | {tenant_objs[idx].area(canvas.scale)::.2f} m²")
+
+    def edit_tenant_area(self, item):
+        idx = self.najemcy_list.row(item)
+        canvas = self._get_canvas()
+        if canvas:
+            tenant_objs = [o for o in canvas.objects if o.__class__.__name__ == 'TenantArea']
+            if 0 <= idx < len(tenant_objs):
+                current = tenant_objs[idx].desired_area or tenant_objs[idx].area(canvas.scale)
+                # Poprawne wywołanie getDouble bez min/max jako keyword
+                val, ok = QInputDialog.getDouble(self, 'Zmień powierzchnię najemcy', 'Nowa powierzchnia (m²):', current, 1.0, 99999.0, 2)
+                if ok:
+                    tenant_objs[idx].desired_area = val
+                    # Automatyczne rozpychanie
+                    building = next((o for o in canvas.objects if o.__class__.__name__ == 'Building'), None)
+                    others = [o for o in canvas.objects if o is not tenant_objs[idx]]
+                    tenant_objs[idx].auto_expand_to_area(building, others, scale=canvas.scale)
+                    canvas.update()
 
     def highlight_object(self, idx, obj_type='tenant'):
         """Mruganie dowolnego obiektu: najemca, powierzchnia wspólna, budynek."""
