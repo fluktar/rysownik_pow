@@ -48,3 +48,19 @@ class AreaObject:
             area += (x1 * y2 - x2 * y1)
         area = abs(area) / 2.0
         return area * (scale ** 2)
+
+    def to_dict(self):
+        return {
+            'type': self.__class__.__name__,
+            'points': [(pt.x(), pt.y()) for pt in self.points],
+            'color': (self.color.red(), self.color.green(), self.color.blue(), self.color.alpha())
+        }
+
+    @classmethod
+    def from_dict(cls, data):
+        from PySide6.QtCore import QPoint
+        points = [QPoint(x, y) for x, y in data.get('points', [])]
+        color = QColor(*data.get('color', (0,0,0,60)))
+        obj = cls(points)
+        obj.color = color
+        return obj
