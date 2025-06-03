@@ -6,12 +6,16 @@ from .gui_canvas import Canvas
 from .gui_side_panel import SidePanel
 
 class AddAreaDialog(QDialog):
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, default_type=None):
         super().__init__(parent)
         self.setWindowTitle("Dodaj powierzchnię")
         layout = QVBoxLayout()
         self.type_combo = QComboBox()
         self.type_combo.addItems(["Powierzchnia wspólna", "Najemca"])
+        if default_type:
+            idx = self.type_combo.findText(default_type)
+            if idx >= 0:
+                self.type_combo.setCurrentIndex(idx)
         layout.addWidget(QLabel("Typ powierzchni:"))
         layout.addWidget(self.type_combo)
         layout.addWidget(QLabel("Powierzchnia (m²):"))
@@ -44,18 +48,17 @@ class MainWindow(QMainWindow):
         self.action_tenant = QAction("Najemca", self)
         self.action_zoom_in = QAction("Zoom +", self)
         self.action_zoom_out = QAction("Zoom -", self)
-        self.action_add_area = QAction("Dodaj powierzchnię", self)
         toolbar.addAction(self.action_building)
         toolbar.addAction(self.action_common)
         toolbar.addAction(self.action_tenant)
         toolbar.addSeparator()
         toolbar.addAction(self.action_zoom_in)
         toolbar.addAction(self.action_zoom_out)
-        toolbar.addSeparator()
-        toolbar.addAction(self.action_add_area)
         self.action_zoom_in.triggered.connect(self.zoom_in)
         self.action_zoom_out.triggered.connect(self.zoom_out)
-        self.action_add_area.triggered.connect(self.add_area_dialog)
+        self.action_building.triggered.connect(lambda: self.set_draw_mode('building'))
+        self.action_common.triggered.connect(lambda: self.set_draw_mode('common'))
+        self.action_tenant.triggered.connect(lambda: self.set_draw_mode('tenant'))
 
         # Menu Plik
         menu = self.menuBar().addMenu("Plik")
@@ -79,6 +82,11 @@ class MainWindow(QMainWindow):
 
         # Połącz canvas z panelem bocznym
         self.canvas.on_building_closed = self.side_panel.set_building_surface
+        self.canvas.on_seeds_changed = self.side_panel.set_seeds
+        self.side_panel.set_seeds(self.canvas.get_all_seeds())
+
+    def set_draw_mode(self, mode):
+        self.canvas.set_draw_mode(mode)
 
     def zoom_in(self):
         self.canvas.zoom_in()
@@ -105,13 +113,3 @@ class MainWindow(QMainWindow):
                 self.canvas.from_dict(data)
             except Exception as e:
                 QMessageBox.critical(self, "Błąd odczytu", str(e))
-
-    def add_area_dialog(self):
-        dlg = AddAreaDialog(self)
-        if dlg.exec() == QDialog.Accepted:
-            typ, area = dlg.get_data()
-            try:
-                area = float(area)
-                self.canvas.add_seed_area(typ, area)
-            except Exception:
-                QMessageBox.warning(self, "Błąd", "Podaj poprawną wartość powierzchni!")
