@@ -75,3 +75,67 @@ class AreaObject:
         obj = cls(points)
         obj.color = color
         return obj
+
+    def snap_to_edges(self, building, others, snap_distance=10):
+        # Przyciąganie do ścian budynku (odcinki, zamknięty wielokąt)
+        if building and len(building.points) > 1:
+            n = len(building.points)
+            closed = (building.points[0] == building.points[-1])
+            seg_count = n-1 if not closed else n-1
+            for i, pt in enumerate(self.points):
+                min_dist = snap_distance
+                snap_pos = None
+                for j in range(seg_count):
+                    a = building.points[j]
+                    b = building.points[(j + 1) % n]
+                    ab = b - a
+                    ap = pt - a
+                    ab_len2 = ab.x()**2 + ab.y()**2
+                    if ab_len2 == 0:
+                        continue
+                    t = max(0, min(1, (ap.x()*ab.x() + ap.y()*ab.y()) / ab_len2))
+                    proj_x = a.x() + ab.x()*t
+                    proj_y = a.y() + ab.y()*t
+                    proj = QPoint(round(proj_x), round(proj_y))
+                    dist = (pt - proj).manhattanLength()
+                    if dist < min_dist:
+                        min_dist = dist
+                        snap_pos = proj
+                if snap_pos is not None:
+                    self.points[i] = snap_pos
+        # Przyciąganie do ścian innych bloków (odcinki)
+        for other in others:
+            if other is self or len(other.points) < 2:
+                continue
+            n = len(other.points)
+            closed = (other.points[0] == other.points[-1])
+            seg_count = n-1 if not closed else n-1
+            for i, pt in enumerate(self.points):
+                min_dist = snap_distance
+                snap_pos = None
+                for j in range(seg_count):
+                    a = other.points[j]
+                    b = other.points[(j + 1) % n]
+                    ab = b - a
+                    ap = pt - a
+                    ab_len2 = ab.x()**2 + ab.y()**2
+                    if ab_len2 == 0:
+                        continue
+                    t = max(0, min(1, (ap.x()*ab.x() + ap.y()*ab.y()) / ab_len2))
+                    proj_x = a.x() + ab.x()*t
+                    proj_y = a.y() + ab.y()*t
+                    proj = QPoint(round(proj_x), round(proj_y))
+                    dist = (pt - proj).manhattanLength()
+                    if dist < min_dist:
+                        min_dist = dist
+                        snap_pos = proj
+                if snap_pos is not None:
+                    self.points[i] = snap_pos
+        # Przyciąganie do punktów innych bloków (jak dotychczas)
+        for other in others:
+            if other is self:
+                continue
+            for i, pt in enumerate(self.points):
+                for opt in other.points:
+                    if (pt - opt).manhattanLength() < snap_distance:
+                        self.points[i] = QPoint(opt)

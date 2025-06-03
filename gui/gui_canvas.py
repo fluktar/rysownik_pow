@@ -21,7 +21,8 @@ class Canvas(QWidget):
         self.on_building_closed = None
         self.on_seeds_changed = None
         self.setMouseTracking(True)
-        self.highlighted_tenant_idx = None
+        self.highlighted_idx = None
+        self.highlighted_type = None
 
     def set_zoom(self, zoom):
         self.zoom = zoom
@@ -42,8 +43,9 @@ class Canvas(QWidget):
         self.selected_vertex = None
         self.update()
 
-    def set_highlighted_tenant(self, idx):
-        self.highlighted_tenant_idx = idx
+    def set_highlighted_object(self, idx, obj_type):
+        self.highlighted_idx = idx
+        self.highlighted_type = obj_type
         self.update()
 
     def mousePressEvent(self, event: QMouseEvent):
@@ -107,12 +109,20 @@ class Canvas(QWidget):
         point = (event.position() / self.zoom).toPoint()
         if self.selected_obj and self.selected_vertex is not None:
             self.selected_obj.move_vertex(self.selected_vertex, point)
+            # SNAP: przyciąganie do krawędzi
+            building = next((o for o in self.objects if isinstance(o, Building)), None)
+            others = [o for o in self.objects if o is not self.selected_obj]
+            self.selected_obj.snap_to_edges(building, others)
             if self.on_seeds_changed:
                 self.on_seeds_changed(self.get_all_seeds())
             self.update()
         elif self.selected_obj:
             delta = point - self.selected_obj.points[0]
             self.selected_obj.move(delta)
+            # SNAP: przyciąganie do krawędzi
+            building = next((o for o in self.objects if isinstance(o, Building)), None)
+            others = [o for o in self.objects if o is not self.selected_obj]
+            self.selected_obj.snap_to_edges(building, others)
             # Jeśli przesuwamy budynek, przesuwamy wszystkie inne obiekty
             if isinstance(self.selected_obj, Building):
                 for obj in self.objects:
@@ -131,13 +141,18 @@ class Canvas(QWidget):
         painter.setRenderHint(QPainter.Antialiasing)
         painter.scale(self.zoom, self.zoom)
         tenant_idx = 0
+        common_idx = 0
         for obj in self.objects:
             highlight = (obj is self.selected_obj)
-            # Mruganie najemcy
-            if obj.__class__.__name__ == 'TenantArea' and self.highlighted_tenant_idx is not None:
-                if tenant_idx == self.highlighted_tenant_idx:
+            # Mruganie dowolnego obiektu
+            if self.highlighted_type == 'tenant' and obj.__class__.__name__ == 'TenantArea':
+                if tenant_idx == self.highlighted_idx:
                     highlight = True
                 tenant_idx += 1
+            elif self.highlighted_type == 'common' and obj.__class__.__name__ == 'CommonArea':
+                if common_idx == self.highlighted_idx:
+                    highlight = True
+                common_idx += 1
             obj.draw(painter, highlight=highlight)
         # Rysowanie aktualnie rysowanego obiektu
         if self.temp_points:

@@ -1,6 +1,6 @@
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QLabel, QGroupBox, QListWidget, QListWidgetItem, QInputDialog
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QLabel, QGroupBox, QListWidget, QListWidgetItem, QInputDialog, QColorDialog
 from PySide6.QtGui import QColor, QBrush, QPixmap, QPainter
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt, QTimer, QPoint
 
 class SidePanel(QWidget):
     def __init__(self, parent=None):
@@ -21,6 +21,12 @@ class SidePanel(QWidget):
         self.layout.addWidget(self.wspolne_list)
         self.layout.addStretch()
         self.najemcy_list.currentRowChanged.connect(self.highlight_tenant)
+        self.wspolne_list.currentRowChanged.connect(self.highlight_common)
+        # Usuwamy bezpośrednie podpięcie itemClicked do zmiany koloru
+        # self.najemcy_list.itemClicked.connect(self._edit_tenant_color)
+        # self.wspolne_list.itemClicked.connect(self._edit_common_color)
+        self.najemcy_list.viewport().installEventFilter(self)
+        self.wspolne_list.viewport().installEventFilter(self)
         self._highlight_timer = QTimer(self)
         self._highlight_timer.timeout.connect(self._toggle_highlight)
         self._highlight_state = False
@@ -29,69 +35,112 @@ class SidePanel(QWidget):
     def set_building_surface(self, surface):
         self.building_label.setText(f"Powierzchnia: {surface:.2f} m²")
 
-    def set_seeds(self, seeds):
+    def _get_canvas(self):
+        # Szukaj canvas w hierarchii rodziców
+        parent = self.parent()
+        while parent is not None:
+            if hasattr(parent, 'canvas'):
+                return parent.canvas
+            parent = parent.parent() if hasattr(parent, 'parent') else None
+        return None
+
+    def setIconColor(self, item, color):
+        pix = self._colored_square_pixmap(color)
+        item.setIcon(pix)
+
+    def set_tenants(self, tenants):
         self.najemcy_list.clear()
-        self.wspolne_list.clear()
-        # Odłącz sygnał tylko jeśli był już podłączony
         try:
             self.najemcy_list.itemDoubleClicked.disconnect(self.edit_tenant_name)
-        except (TypeError, RuntimeError):
+        except RuntimeError:
             pass
-        for seed in seeds:
-            if seed['type'] == 'Najemca':
-                item = QListWidgetItem(f"{seed.get('name', 'Najemca')} | {seed['area']:.2f} m²")
-                # Dodaj kolorowy kwadracik
-                color_val = seed.get('color', [0,200,0,120])
-                if isinstance(color_val, QColor):
-                    color = color_val
-                else:
-                    color = QColor(*color_val)
-                pix = self._colored_square_pixmap(color)
-                item.setIcon(pix)
-                self.najemcy_list.addItem(item)
-            else:
-                item = QListWidgetItem(f"Powierzchnia wspólna | {seed['area']:.2f} m²")
-                self.wspolne_list.addItem(item)
-        # Podłącz sygnał tylko raz
+        canvas = self._get_canvas()
+        scale = canvas.scale if canvas else 1.0
+        for tenant in tenants:
+            item = QListWidgetItem(f"{tenant.name} | {tenant.area(scale):.2f} m²")
+            self.setIconColor(item, tenant.color)
+            self.najemcy_list.addItem(item)
         if not hasattr(self, '_tenant_signal_connected') or not self._tenant_signal_connected:
             self.najemcy_list.itemDoubleClicked.connect(self.edit_tenant_name)
             self._tenant_signal_connected = True
+
+    def set_common_areas(self, common_areas):
+        self.wspolne_list.clear()
+        
+        canvas = self._get_canvas()
+        scale = canvas.scale if canvas else 1.0
+        for area in common_areas:
+            item = QListWidgetItem(f"Powierzchnia wspólna | {area.area(scale):.2f} m²")
+            self.setIconColor(item, area.color)
+            self.wspolne_list.addItem(item)
+
+    def set_seeds(self, seeds):
+        # ZACHOWANE DLA KOMPATYBILNOŚCI, NIE UŻYWAJ W NOWYM KODZIE
+        tenants = []
+        commons = []
+        from model.tenant_area import TenantArea
+        from model.common_area import CommonArea
+        for seed in seeds:
+            if seed['type'] == 'Najemca':
+                color_val = seed.get('color', [0,200,0,120])
+                if isinstance(color_val, QColor):
+                    color = color_val
+                elif isinstance(color_val, (list, tuple)):
+                    color = QColor(*color_val)
+                else:
+                    # Jeśli to już QColor, nie rozpakowuj
+                    color = QColor(color_val)
+                t = TenantArea([QPoint(pt.x(), pt.y()) if hasattr(pt, 'x') else QPoint(*pt) for pt in seed['points']], color, seed.get('name', 'Najemca'))
+                tenants.append(t)
+            elif seed['type'] == 'Powierzchnia wspólna':
+                c = CommonArea([QPoint(pt.x(), pt.y()) if hasattr(pt, 'x') else QPoint(*pt) for pt in seed['points']])
+                commons.append(c)
+        self.set_tenants(tenants)
+        self.set_common_areas(commons)
 
     def edit_tenant_name(self, item):
         idx = self.najemcy_list.row(item)
         name, ok = QInputDialog.getText(self, 'Zmień nazwę najemcy', 'Nowa nazwa:')
         if ok and name:
             from gui.gui_canvas import Canvas
-            canvas: Canvas = self.parent().canvas if hasattr(self.parent(), 'canvas') else None
+            canvas: Canvas = self._get_canvas()
             if canvas:
                 tenant_objs = [o for o in canvas.objects if o.__class__.__name__ == 'TenantArea']
                 if 0 <= idx < len(tenant_objs):
                     tenant_objs[idx].name = name
-                    item.setText(f"{name} | {tenant_objs[idx].area(canvas.scale):.2f} m²")
+                    item.setText(f"{name} | {tenant_objs[idx].area(canvas.scale)::.2f} m²")
 
-    def highlight_tenant(self, idx):
+    def highlight_object(self, idx, obj_type='tenant'):
+        """Mruganie dowolnego obiektu: najemca, powierzchnia wspólna, budynek."""
         from gui.gui_canvas import Canvas
-        canvas: Canvas = self.parent().canvas if hasattr(self.parent(), 'canvas') else None
+        canvas: Canvas = self._get_canvas()
         self._highlighted_idx = idx
+        self._highlighted_type = obj_type
         if idx >= 0 and canvas:
             self._highlight_state = True
-            self._highlight_timer.start(400)  # mruganie co 400ms
-            canvas.set_highlighted_tenant(idx)
+            self._highlight_timer.start(400)
+            canvas.set_highlighted_object(idx, obj_type)
         else:
             self._highlight_timer.stop()
             if canvas:
-                canvas.set_highlighted_tenant(None)
+                canvas.set_highlighted_object(None, None)
 
     def _toggle_highlight(self):
         from gui.gui_canvas import Canvas
-        canvas: Canvas = self.parent().canvas if hasattr(self.parent(), 'canvas') else None
+        canvas: Canvas = self._get_canvas()
         if canvas and self._highlighted_idx is not None and self._highlighted_idx >= 0:
             self._highlight_state = not self._highlight_state
-            canvas.set_highlighted_tenant(self._highlighted_idx if self._highlight_state else None)
+            canvas.set_highlighted_object(self._highlighted_idx if self._highlight_state else None, self._highlighted_type)
         else:
             self._highlight_timer.stop()
             if canvas:
-                canvas.set_highlighted_tenant(None)
+                canvas.set_highlighted_object(None, None)
+
+    def highlight_tenant(self, idx):
+        self.highlight_object(idx, obj_type='tenant')
+
+    def highlight_common(self, idx):
+        self.highlight_object(idx, obj_type='common')
 
     def _colored_square_pixmap(self, color):
         pix = QPixmap(16, 16)
@@ -102,3 +151,48 @@ class SidePanel(QWidget):
         painter.drawRect(2, 2, 12, 12)
         painter.end()
         return pix
+
+    def _edit_tenant_color(self, item):
+        idx = self.najemcy_list.row(item)
+        canvas = self._get_canvas()
+        if canvas:
+            tenant_objs = [o for o in canvas.objects if o.__class__.__name__ == 'TenantArea']
+            if 0 <= idx < len(tenant_objs):
+                color = QColorDialog.getColor(tenant_objs[idx].color, self, 'Wybierz kolor najemcy')
+                if color.isValid():
+                    tenant_objs[idx].color = color
+                    self.setIconColor(item, color)
+                    canvas.update()
+
+    def _edit_common_color(self, item):
+        idx = self.wspolne_list.row(item)
+        canvas = self._get_canvas()
+        if canvas:
+            common_objs = [o for o in canvas.objects if o.__class__.__name__ == 'CommonArea']
+            if 0 <= idx < len(common_objs):
+                color = QColorDialog.getColor(common_objs[idx].color, self, 'Wybierz kolor powierzchni wspólnej')
+                if color.isValid():
+                    common_objs[idx].color = color
+                    self.setIconColor(item, color)
+                    canvas.update()
+
+    def eventFilter(self, obj, event):
+        from PySide6.QtCore import QEvent
+        if event.type() == QEvent.MouseButtonPress:
+            pos = event.pos()
+            if obj is self.najemcy_list.viewport():
+                idx = self.najemcy_list.indexAt(pos).row()
+                if idx >= 0:
+                    rect = self.najemcy_list.visualItemRect(self.najemcy_list.item(idx))
+                    # Kwadracik jest po lewej, 0-20px
+                    if pos.x() - rect.x() < 20:
+                        self._edit_tenant_color(self.najemcy_list.item(idx))
+                        return True
+            elif obj is self.wspolne_list.viewport():
+                idx = self.wspolne_list.indexAt(pos).row()
+                if idx >= 0:
+                    rect = self.wspolne_list.visualItemRect(self.wspolne_list.item(idx))
+                    if pos.x() - rect.x() < 20:
+                        self._edit_common_color(self.wspolne_list.item(idx))
+                        return True
+        return super().eventFilter(obj, event)
