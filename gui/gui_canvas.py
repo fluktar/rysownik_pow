@@ -1,4 +1,4 @@
-from PySide6.QtWidgets import QWidget
+from PySide6.QtWidgets import QWidget, QColorDialog, QInputDialog
 from PySide6.QtGui import QPainter, QPen, QColor, QMouseEvent, QPainterPath, QPolygon
 from PySide6.QtCore import Qt, QPoint
 import math
@@ -82,10 +82,20 @@ class Canvas(QWidget):
         elif self.draw_mode == 'tenant':
             if self.temp_points and (point - self.temp_points[0]).manhattanLength() < 10 and len(self.temp_points) > 2:
                 self.temp_points.append(self.temp_points[0])
-                self.objects.append(TenantArea(list(self.temp_points)))
+                # Dialog wyboru koloru i nazwy
+                color = QColorDialog.getColor(QColor(0,200,0,120), self, 'Wybierz kolor najemcy')
+                if not color.isValid():
+                    color = QColor(0,200,0,120)
+                name, ok = QInputDialog.getText(self, 'Nazwa najemcy', 'Podaj nazwę najemcy:')
+                if not ok or not name:
+                    name = 'Najemca'
+                self.objects.append(TenantArea(list(self.temp_points), color, name))
                 self.temp_points = []
                 if self.on_seeds_changed:
                     self.on_seeds_changed(self.get_all_seeds())
+                self.update()
+            else:
+                self.temp_points.append(point)
                 self.update()
 
     def mouseMoveEvent(self, event: QMouseEvent):
