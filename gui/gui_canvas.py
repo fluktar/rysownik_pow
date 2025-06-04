@@ -58,18 +58,23 @@ class Canvas(QWidget):
 
     def mousePressEvent(self, event: QMouseEvent):
         point = (event.position() / self.zoom).toPoint()
-        # Edycja wierzchołka lub przesuwanie istniejącego obiektu
+        # Dodawanie punktu do najemcy po kliknięciu na krawędź
+        for obj in reversed(self.objects):
+            if isinstance(obj, TenantArea):
+                if obj.insert_vertex(point, threshold=10):
+                    self.selected_obj = obj
+                    self.selected_vertex = obj.points.index(point)  # Ustaw nowy punkt jako wybrany
+                    if self.on_seeds_changed:
+                        self.on_seeds_changed(self.get_all_seeds())
+                    self.update()
+                    return
+        # Edycja wierzchołka (przesuwanie tylko jeśli kliknięto bardzo blisko istniejącego punktu)
         for obj in reversed(self.objects):
             idx = obj.hit_vertex(point)
             if idx is not None:
                 self.selected_obj = obj
                 self.selected_vertex = idx
                 self.drag_offset = obj.points[idx] - point
-                return
-            if obj.hit_test(point):
-                self.selected_obj = obj
-                self.selected_vertex = None
-                self.drag_offset = obj.points[0] - point
                 return
         # Rysowanie nowego obiektu
         if self.draw_mode == 'building' and not any(isinstance(o, Building) for o in self.objects):
