@@ -23,6 +23,10 @@ class Canvas(QWidget):
         self.setMouseTracking(True)
         self.highlighted_idx = None
         self.highlighted_type = None
+        self.show_grid = True  # widoczność siatki
+        self.grid_base = 1.0   # podstawowa wielkość kratki w metrach
+        self.grid_color = QColor(180, 180, 255, 60)
+        self.snap_to_grid = True
 
     def set_zoom(self, zoom):
         self.zoom = zoom
@@ -46,6 +50,10 @@ class Canvas(QWidget):
     def set_highlighted_object(self, idx, obj_type):
         self.highlighted_idx = idx
         self.highlighted_type = obj_type
+        self.update()
+
+    def toggle_grid(self):
+        self.show_grid = not self.show_grid
         self.update()
 
     def mousePressEvent(self, event: QMouseEvent):
@@ -140,6 +148,10 @@ class Canvas(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
         painter.scale(self.zoom, self.zoom)
+        # Rysowanie siatki i podświetlanie zajętych kratek (wariant 2)
+        highlight_cells = self._get_occupied_cells() if self.show_grid and hasattr(self, 'show_occupied') and self.show_occupied else None
+        if self.show_grid:
+            self._draw_grid(painter, highlight_cells=highlight_cells)
         tenant_idx = 0
         common_idx = 0
         for obj in self.objects:
@@ -164,6 +176,55 @@ class Canvas(QWidget):
             for pt in self.temp_points:
                 painter.setBrush(color)
                 painter.drawEllipse(pt, 4, 4)
+
+    def _draw_grid(self, painter, highlight_cells=None):
+        # Wyznacz rozmiar kratki w pikselach na podstawie skali i zoomu
+        grid_size = self.grid_base / self.scale
+        grid_size_px = grid_size * self.zoom
+        rect = self.rect()
+        painter.save()
+        painter.setPen(QPen(self.grid_color, 1))
+        # Rysuj pionowe linie
+        x = 0
+        while x < rect.width() / self.zoom:
+            painter.drawLine(int(x), 0, int(x), int(rect.height() / self.zoom))
+            x += grid_size
+        # Rysuj poziome linie
+        y = 0
+        while y < rect.height() / self.zoom:
+            painter.drawLine(0, int(y), int(rect.width() / self.zoom), int(y))
+            y += grid_size
+        # Opcjonalnie podświetl zajęte kratki
+        if highlight_cells:
+            painter.setBrush(QColor(255, 200, 0, 60))
+            painter.setPen(Qt.NoPen)
+            for gx, gy in highlight_cells:
+                painter.drawRect(int(gx*grid_size), int(gy*grid_size), int(grid_size), int(grid_size))
+        painter.restore()
+
+    def _get_occupied_cells(self):
+        # Rasteryzacja: zwraca zbiór (gx, gy) zajętych przez obiekty TenantArea i CommonArea
+        grid_size = self.grid_base / self.scale
+        occupied = set()
+        for obj in self.objects:
+            if isinstance(obj, (TenantArea, CommonArea)):
+                poly = QPolygon(obj.points)
+                # Wyznacz bounding box
+                min_x = min(p.x() for p in obj.points)
+                max_x = max(p.x() for p in obj.points)
+                min_y = min(p.y() for p in obj.points)
+                max_y = max(p.y() for p in obj.points)
+                gx0 = int(min_x // grid_size)
+                gx1 = int(max_x // grid_size) + 1
+                gy0 = int(min_y // grid_size)
+                gy1 = int(max_y // grid_size) + 1
+                for gx in range(gx0, gx1):
+                    for gy in range(gy0, gy1):
+                        cx = gx * grid_size + grid_size/2
+                        cy = gy * grid_size + grid_size/2
+                        if poly.containsPoint(QPoint(int(cx), int(cy)), Qt.OddEvenFill):
+                            occupied.add((gx, gy))
+        return occupied
 
     def get_all_seeds(self):
         seeds = []

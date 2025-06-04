@@ -1,6 +1,7 @@
 from PySide6.QtGui import QColor
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QPolygon
+import math
 from .area_object import AreaObject
 
 class TenantArea(AreaObject):
@@ -23,38 +24,72 @@ class TenantArea(AreaObject):
         obj.desired_area = data.get('desired_area', None)
         return obj
 
-    def auto_expand_to_area(self, building, others, scale=0.1, max_iter=100):
+    def auto_expand_to_area(self, building, others, scale=0.1, max_iter=1200):
         """Automatycznie powiększ blok do zadanej powierzchni (desired_area), nie kolidując z innymi."""
+        import sys
+        print(f"[auto_expand_to_area] start: desired_area={self.desired_area}, current_area={self.area(scale):.2f}", file=sys.stderr)
         if not self.desired_area or len(self.points) < 3:
+            print("[auto_expand_to_area] brak desired_area lub za mało punktów", file=sys.stderr)
             return
-        import random
         from PySide6.QtCore import QPoint
-        for _ in range(max_iter):
+        import random
+        for iter_num in range(max_iter):
             current_area = self.area(scale)
             if current_area >= self.desired_area:
+                print(f"[auto_expand_to_area] osiągnięto powierzchnię: {current_area:.2f} >= {self.desired_area}", file=sys.stderr)
                 break
-            # Spróbuj rozepchnąć każdy wierzchołek na zewnątrz
+            cx = sum(p.x() for p in self.points) / len(self.points)
+            cy = sum(p.y() for p in self.points) / len(self.points)
+            expanded = False
             for i, pt in enumerate(self.points):
-                # Kierunek: od środka masy na zewnątrz
-                cx = sum(p.x() for p in self.points) / len(self.points)
-                cy = sum(p.y() for p in self.points) / len(self.points)
                 dx = pt.x() - cx
                 dy = pt.y() - cy
                 length = (dx**2 + dy**2) ** 0.5 or 1
-                step = 2 + random.random()  # losowy krok
-                new_pt = QPoint(round(pt.x() + dx/length*step), round(pt.y() + dy/length*step))
-                old = self.points[i]
-                self.points[i] = new_pt
-                # Sprawdź kolizje z budynkiem i innymi blokami
-                if building and not QPolygon(building.points).containsPoint(new_pt, Qt.OddEvenFill):
-                    self.points[i] = old
-                    continue
-                collision = False
-                for other in others:
-                    if other is self:
-                        continue
-                    if QPolygon(other.points).containsPoint(new_pt, Qt.OddEvenFill):
-                        collision = True
+                # Testuj 16 kierunków, nie tylko 8
+                for try_dir in range(16):
+                    angle = (2 * 3.14159 * try_dir) / 16
+                    step = 12 + 6*random.random()
+                    ddx = step * math.cos(angle)
+                    ddy = step * math.sin(angle)
+                    new_pt = QPoint(round(pt.x() + ddx), round(pt.y() + ddy))
+                    old = self.points[i]
+                    self.points[i] = new_pt
+                    valid = True
+                    if building and not QPolygon(building.points).containsPoint(new_pt, Qt.OddEvenFill):
+                        valid = False
+                    for other in others:
+                        if other is self:
+                            continue
+                        if QPolygon(other.points).containsPoint(new_pt, Qt.OddEvenFill):
+                            valid = False
+                            break
+                    if not valid:
+                        self.points[i] = old
+                    else:
+                        expanded = True
                         break
-                if collision:
-                    self.points[i] = old
+            if not expanded:
+                print(f"[auto_expand_to_area] iter={iter_num}: nie udało się powiększyć żadnego wierzchołka, próbuję całość", file=sys.stderr)
+                for i, pt in enumerate(self.points):
+                    dx = pt.x() - cx
+                    dy = pt.y() - cy
+                    length = (dx**2 + dy**2) ** 0.5 or 1
+                    step = 4
+                    new_pt = QPoint(round(pt.x() + dx/length*step), round(pt.y() + dy/length*step))
+                    old = self.points[i]
+                    self.points[i] = new_pt
+                    valid = True
+                    if building and not QPolygon(building.points).containsPoint(new_pt, Qt.OddEvenFill):
+                        valid = False
+                    for other in others:
+                        if other is self:
+                            continue
+                        if QPolygon(other.points).containsPoint(new_pt, Qt.OddEvenFill):
+                            valid = False
+                            break
+                    if not valid:
+                        self.points[i] = old
+                if self.area(scale) <= current_area:
+                    print(f"[auto_expand_to_area] iter={iter_num}: nie da się już powiększyć (area={self.area(scale):.2f})", file=sys.stderr)
+                    break
+        print(f"[auto_expand_to_area] koniec: area={self.area(scale):.2f}", file=sys.stderr)
