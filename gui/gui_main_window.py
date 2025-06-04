@@ -72,6 +72,7 @@ class MainWindow(QMainWindow):
         # Canvas (centralny widget)
         self.canvas = Canvas(self)
         self.setCentralWidget(self.canvas)
+        self.canvas.add_shortcuts_menu(self.menuBar())
 
         # Panel boczny
         self.side_panel = SidePanel(self)

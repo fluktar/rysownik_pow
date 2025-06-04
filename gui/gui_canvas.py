@@ -27,6 +27,8 @@ class Canvas(QWidget):
         self.grid_base = 1.0   # podstawowa wielkość kratki w metrach
         self.grid_color = QColor(180, 180, 255, 60)
         self.snap_to_grid = True
+        # tryb interakcji: 'default', 'add_vertex', 'move_vertex'
+        self.interaction_mode = 'default'
 
     def set_zoom(self, zoom):
         self.zoom = zoom
@@ -56,26 +58,61 @@ class Canvas(QWidget):
         self.show_grid = not self.show_grid
         self.update()
 
+    def set_interaction_mode(self, mode):
+        self.interaction_mode = mode
+        self.update()
+
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key_N:
+            self.set_interaction_mode('add_vertex')
+        elif event.key() == Qt.Key_P:
+            self.set_interaction_mode('move_vertex')
+        elif event.key() == Qt.Key_Escape:
+            self.set_interaction_mode('default')
+        super().keyPressEvent(event)
+
     def mousePressEvent(self, event: QMouseEvent):
         point = (event.position() / self.zoom).toPoint()
-        # Dodawanie punktu do najemcy po kliknięciu na krawędź
-        for obj in reversed(self.objects):
-            if isinstance(obj, TenantArea):
-                if obj.insert_vertex(point, threshold=10):
+        # Dodawanie punktu do najemcy po kliknięciu na krawędź (tryb add_vertex)
+        if self.interaction_mode == 'add_vertex':
+            for obj in reversed(self.objects):
+                if isinstance(obj, TenantArea):
+                    before = len(obj.points)
+                    if obj.insert_vertex(point, threshold=10):
+                        min_idx = None
+                        min_dist = float('inf')
+                        for idx, pt in enumerate(obj.points):
+                            dist = (pt - point).manhattanLength()
+                            if dist < min_dist:
+                                min_dist = dist
+                                min_idx = idx
+                        if min_idx is not None and min_dist < 15:
+                            self.selected_obj = obj
+                            self.selected_vertex = min_idx
+                        else:
+                            self.selected_obj = obj
+                            self.selected_vertex = None
+                        if self.on_seeds_changed:
+                            self.on_seeds_changed(self.get_all_seeds())
+                        self.update()
+                        return
+        # Przesuwanie punktu tylko w trybie move_vertex
+        if self.interaction_mode == 'move_vertex':
+            for obj in reversed(self.objects):
+                idx = obj.hit_vertex(point)
+                if idx is not None:
                     self.selected_obj = obj
-                    self.selected_vertex = obj.points.index(point)  # Ustaw nowy punkt jako wybrany
-                    if self.on_seeds_changed:
-                        self.on_seeds_changed(self.get_all_seeds())
-                    self.update()
+                    self.selected_vertex = idx
+                    self.drag_offset = obj.points[idx] - point
                     return
-        # Edycja wierzchołka (przesuwanie tylko jeśli kliknięto bardzo blisko istniejącego punktu)
-        for obj in reversed(self.objects):
-            idx = obj.hit_vertex(point)
-            if idx is not None:
-                self.selected_obj = obj
-                self.selected_vertex = idx
-                self.drag_offset = obj.points[idx] - point
-                return
+        # Przesuwanie całego obiektu: tylko środkowy przycisk lub lewy + Ctrl
+        if (event.button() == Qt.MiddleButton) or (event.button() == Qt.LeftButton and (event.modifiers() & Qt.ControlModifier)):
+            for obj in reversed(self.objects):
+                if obj.hit_test(point):
+                    self.selected_obj = obj
+                    self.selected_vertex = None
+                    self.drag_offset = obj.points[0] - point
+                    return
         # Rysowanie nowego obiektu
         if self.draw_mode == 'building' and not any(isinstance(o, Building) for o in self.objects):
             if self.temp_points and (point - self.temp_points[0]).manhattanLength() < 10 and len(self.temp_points) > 2:
@@ -271,3 +308,11 @@ class Canvas(QWidget):
             self.zoom_in()
         else:
             self.zoom_out()
+
+    def add_shortcuts_menu(self, menubar):
+        menu = menubar.addMenu('Instrukcje')
+        menu.addAction('N - Tryb dodawania punktów (modelowanie najemcy)')
+        menu.addAction('P - Tryb przesuwania punktów')
+        menu.addAction('Esc - Tryb domyślny (brak specjalnej akcji)')
+        menu.addAction('Ctrl + Lewy przycisk myszy lub środkowy przycisk - przesuwanie całego obiektu')
+        menu.addAction('Rysowanie nowych obiektów - tryb domyślny, lewy przycisk myszy')
